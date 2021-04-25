@@ -1,7 +1,6 @@
 ---
 title: "Practical Machine Learning"
 author: "Sebastian Gomez"
-date: "4/25/2021"
 output: 
   html_document: 
     keep_md: yes
