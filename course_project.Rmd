@@ -1,31 +1,212 @@
 ---
-title: "Practical Machine Learning"
+title: "Practical Machine Learning - Course Project"
 author: "Sebastian Gomez"
 output: 
   html_document: 
     keep_md: yes
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r include = FALSE}
+## Loading packages and relevant dependencies
+## This code chunk will not be displayed on the R Markdown document
+library(gbm)
+library(caret)
+library(rattle)
+library(e1071)
+library(kernlab)
+library(olsrr)
+library(rpart)
+library(rpart.plot)
+library(nlme)
+library(mgcv)
 ```
 
-## R Markdown
+# Report
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+## Overview
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+This report describes the prediction assignment of the Practical Machine Learning - Coursera course from Johns Hopkins University. The goal of this project was to  predict the manner in which the recorded subjects exercised. This is represented by the "classe" variable in the training set.
 
-```{r cars}
-summary(cars)
+In order to do this, the necessary data was downloaded and processed into R. Also, data sets were prepared, cleaned and partitioned.
+
+Then, 6 different models were proposed and compared, to select one final model, Random Forests, to create prediction classe values for the 20 test cases provided.
+
+## Preparing data
+
+### Loading data
+
+First the required data sets (pml-training and pml-testing) were downloaded and loaded into R.
+
+```{r warning = FALSE}
+##download.file(url = 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv', 'pml-training.csv', method = 'curl')
+##download.file(url = 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv', 'pml-testing.csv', method = 'curl')
+pmltraining = read.table('pml-training.csv', sep = ',', header = TRUE, na.strings = c('NA', '#DIV/0!', ''))
+pmltesting = read.table('pml-testing.csv', sep = ',', header = TRUE, na.strings = c('NA', '#DIV/0!', ''))
+pmltraining$classe = as.factor(pmltraining$classe)
+pmltraining$cvtd_timestamp = as.Date(pmltraining$cvtd_timestamp, "%d/%m/%Y %H:%M")
 ```
 
-## Including Plots
+### Splitting pmltraining data set into a model training and testing sets
 
-You can also embed plots, for example:
+Then, an actual model training and testing partition of the pmltraining data set was created for additional cross-validation. A specific seed was also setup for reproducibility purposes.
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r warning = FALSE}
+## Setting seed for reproducibility purposes
+set.seed(100)
+## Creating model training partition
+modTrainingPartition = createDataPartition(y = pmltraining$classe, p = 0.75, list = FALSE)
+pmlmodeltraining = pmltraining[modTrainingPartition, ]
+pmlmodeltesting = pmltraining[-modTrainingPartition, ]
+pmlmodeltrainingclasse = pmlmodeltraining$classe
+pmlmodeltestingclasse = pmlmodeltesting$classe
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Data cleaning
+
+The code below helped cleaning up variables with near zero variance (very little variation), as well as high proportion (greater than or equal to 95%) of NA values across the entire model training data set. It is assumed that none of this would really be helpful for prediction purposes.
+
+```{r warning = FALSE}
+## Clearing variables with near zero variance as bad predictors
+pmlmodeltraining = pmlmodeltraining[, -nearZeroVar(pmlmodeltraining)]
+## Clearing variables with more than 95% of NA values
+pmlmodeltraining = pmlmodeltraining[, ((colSums(is.na(pmlmodeltraining))/nrow(pmlmodeltraining)) <= 0.95)]
+```
+
+Also, other non-relevant and subject-specific variables such as  X (number of the observation), user_name, num_window, as well as some timestamps columns were removed. Then, int values were converted to numerical in order to facilitate all calculations.  
+
+```{r warning = FALSE}
+## Removing non relevant columns, and outcome
+pmlmodeltraining = pmlmodeltraining[, -c(1:6, 59)]
+## Leaving only columns present in the pmlmodel training data set into the testing and validation set
+pmlmodeltesting = pmlmodeltesting[, names(pmlmodeltraining)]
+pmltesting = pmltesting[, names(pmlmodeltraining)]
+## Converting all predictors to numeric
+pmlmodeltraining = data.frame(sapply(pmlmodeltraining, as.numeric))
+pmlmodeltesting = data.frame(sapply(pmlmodeltesting, as.numeric))
+pmltesting = data.frame(sapply(pmltesting, as.numeric))
+```
+
+## Model fitting
+
+Once the data sets had been prepared, the following models were tried using repeated cross-validation with 10-fold and 3 repeats:
+
+1. Decision Tree: rpart
+
+2. Linear Discriminant Analysis: lda
+
+3. Naive Bayes: nb
+
+4. Gradient Boosting Trees: gbm
+
+5. Random Forests: rf
+
+```{r warning = FALSE}
+## Cross validation settings : 10 folds repeat 3 times
+control = trainControl(method = 'repeatedcv', number = 10, repeats = 3)
+## Fitting the different proposed models
+fitTreeCARET = train(classe ~ ., data = cbind(classe = pmlmodeltrainingclasse, pmlmodeltraining),
+        method = 'rpart', trControl = control) 
+fitLDA = train(classe ~ ., data = cbind(classe = pmlmodeltrainingclasse, pmlmodeltraining),
+        method = 'lda', trControl = control)
+fitNB = train(classe ~ ., data = cbind(classe = pmlmodeltrainingclasse, pmlmodeltraining), 
+        method = 'nb', trControl = control)
+fitGBM = train(classe ~ ., data = cbind(classe = pmlmodeltrainingclasse, pmlmodeltraining), 
+        method = 'gbm', trControl = control, verbose = FALSE)
+fitRF = train(classe ~ ., data = cbind(classe = pmlmodeltrainingclasse, pmlmodeltraining), 
+        method = 'rf', trControl = control)
+```
+
+After fitting the proposed models, confusion matrixes were calculated for the training and test data, and their respective overall metrics collected to determine which model to select:
+
+```{r warning = FALSE}
+## Predicted outcome values per model for the training set
+predTrainTreeCARET = predict(fitTreeCARET, newdata = pmlmodeltraining)
+predTrainLDA = predict(fitLDA, newdata = pmlmodeltraining)
+predTrainNB = predict(fitNB, newdata = pmlmodeltraining)
+predTrainGBM = predict(fitGBM, newdata = pmlmodeltraining)
+predTrainRF = predict(fitRF, newdata = pmlmodeltraining)
+
+## Calculating confusion Matrix for training values per model
+metrics = data.frame()
+confTrainTreeCARET = confusionMatrix(predTrainTreeCARET, pmlmodeltrainingclasse)
+metrics = rbind(metrics, c('Tree-Caret', 'Training', confTrainTreeCARET$overall))
+names(metrics) = c('Model', 'Type', names(confTrainTreeCARET$overall))
+confTrainLDA = confusionMatrix(predTrainLDA, pmlmodeltrainingclasse)
+metrics = rbind(metrics, c('LDA', 'Training', confTrainLDA$overall))
+confTrainNB = confusionMatrix(predTrainNB, pmlmodeltrainingclasse)
+metrics = rbind(metrics, c('Naive Bayes', 'Training', confTrainNB$overall))
+confTrainGBM = confusionMatrix(predTrainGBM, pmlmodeltrainingclasse)
+metrics = rbind(metrics, c('GBM', 'Training', confTrainGBM$overall))
+confTrainRF = confusionMatrix(predTrainRF, pmlmodeltrainingclasse)
+metrics = rbind(metrics, c('Random Forests', 'Training', confTrainRF$overall))
+```
+
+Below is the code used for prediction and confusion matrix calculation on the testing set.
+
+```{r warning = FALSE}
+## Predicted outcome values per model for the testing set
+predTestTreeCARET = predict(fitTreeCARET, newdata = pmlmodeltesting)
+predTestLDA = predict(fitLDA, newdata = pmlmodeltesting)
+predTestNB = predict(fitNB, newdata = pmlmodeltesting)
+predTestGBM = predict(fitGBM, newdata = pmlmodeltesting)
+predTestRF = predict(fitRF, newdata = pmlmodeltesting)
+
+## Calculating confusion Matrix for testing values per model
+confTestTreeCARET = confusionMatrix(predTestTreeCARET, pmlmodeltestingclasse)
+metrics = rbind(metrics, c('Tree-Caret', 'Testing', confTestTreeCARET$overall))
+confTestLDA = confusionMatrix(predTestLDA, pmlmodeltestingclasse)
+metrics = rbind(metrics, c('LDA', 'Testing', confTestLDA$overall))
+confTestNB = confusionMatrix(predTestNB, pmlmodeltestingclasse)
+metrics = rbind(metrics, c('Naive Bayes', 'Testing', confTestNB$overall))
+confTestGBM = confusionMatrix(predTestGBM, pmlmodeltestingclasse)
+metrics = rbind(metrics, c('GBM', 'Testing', confTestGBM$overall))
+confTestRF = confusionMatrix(predTestRF, pmlmodeltestingclasse)
+metrics = rbind(metrics, c(Model = 'Random Forests', Type = 'Testing', confTestRF$overall))
+```
+
+Now, here are the most important metrics for each of the models:
+
+```{r}
+print(metrics[, c(1:6)])
+```
+
+Following these results, judging by the best accuracy levels, the selected prediction model is number 6 - Random Forests.
+
+## Validation predictions on pmltesting data set
+
+Using the selected model, the predictions for the pmltesting validation data set were generated:
+
+```{r warning = FALSE}
+## Predicted outcome values per model for the validation pmltesting set
+predValidationtRF = predict(fitRF, newdata = pmltesting)
+print(predValidationtRF)
+```
+
+# Appendix
+
+Below are the details of the different proposed models:
+
+```{r warning = FALSE}
+## Decision tree using caret train function
+print(fitTreeCARET)
+## LDA
+print(fitLDA)
+## Naive Bayes
+print(fitNB)
+## GBM
+print(fitGBM)
+## Random Forests
+print(fitRF)
+```
+
+Below are the plots of the two most accurate models:
+
+```{r warning = FALSE}
+## Random Forests
+plot(fitRF)
+plot(fitRF$finalModel)
+## GBM
+plot(fitGBM)
+plot(fitGBM$finalModel)
+```
+
