@@ -1,5 +1,5 @@
 ---
-title: "Practical Machine Learning - Course Project"
+title: "Machine Learning model selection to predict exercise classe (Factor) - Practical Machine Learning - Course Project"
 author: "Sebastian Gomez"
 output: 
   html_document: 
@@ -16,7 +16,7 @@ This report describes the prediction assignment of the Practical Machine Learnin
 
 In order to do this, the necessary data was downloaded and processed into R. Also, data sets were prepared, cleaned and partitioned.
 
-Then, 6 different models were proposed and compared, to select one final model, Random Forests, to create prediction classe values for the 20 test cases provided.
+Then, 5 different models were proposed and compared, to select one final model, Random Forests, to create prediction classe values for the 20 test cases provided.
 
 ## Preparing data
 
